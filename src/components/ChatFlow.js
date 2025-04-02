@@ -83,7 +83,7 @@ function ChatFlow() {
           fitView
         >
           <Background />
-          <Controls />
+          {/* Removing the Controls component */}
           <MiniMap />
         </ReactFlow>
       </Paper>

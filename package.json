@@ -23,12 +23,14 @@
     "@remix-run/react": "^2.16.4",
     "@remix-run/serve": "^2.16.4",
     "axios": "^1.6.7",
+    "gpt-tokenizer": "^2.9.0",
     "openai": "^4.28.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.0.1",
     "reactflow": "^11.11.4",
-    "remix-router": "^0.1.0"
+    "remix-router": "^0.1.0",
+    "tiktoken": "^1.0.20"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",

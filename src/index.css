@@ -2,29 +2,31 @@
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
-
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  
+  /* CSS variables for theming */
+  --primary-color: #646cff;
+  --primary-hover: #535bf2;
+  --background-light: #ffffff;
+  --background-dark: #242424;
+  --text-light: #213547;
+  --text-dark: rgba(255, 255, 255, 0.87);
 }
 
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--primary-color);
   text-decoration: inherit;
 }
-a:hover {
-  color: #535bf2;
-}
 
-:root {
-  width: 100%;
-  height: 100vh;
+a:hover {
+  color: var(--primary-hover);
 }
 
 html, body, #root {
@@ -32,17 +34,86 @@ html, body, #root {
   padding: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
+/* Node styling */
 .react-flow__node {
   width: auto;
   background: white;
   border-radius: 5px;
+  display: flex;
+  flex-direction: column;
 }
 
 h1 {
-  font-size: 3.2em;
+  font-size: clamp(1.5rem, 5vw, 3.2rem);
   line-height: 1.1;
+}
+
+/* Spinner animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Media queries for responsive typography */
+@media (max-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+  
+  .react-flow__node {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    font-size: 12px;
+  }
+  
+  .react-flow__node {
+    font-size: 0.85rem;
+  }
+}
+
+/* Light/dark mode theming */
+@media (prefers-color-scheme: light) {
+  :root {
+    color: var(--text-light);
+    background-color: var(--background-light);
+  }
+  
+  a:hover {
+    color: var(--primary-hover);
+  }
+  
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: var(--text-dark);
+    background-color: var(--background-dark);
+  }
+  
+  .react-flow__node {
+    background: #333;
+    color: #fff;
+  }
 }
 
 button {
@@ -62,34 +133,4 @@ button:hover {
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
-
-
-/* Add this at the end of the file */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.loading-spinner {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #3498db;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
 }

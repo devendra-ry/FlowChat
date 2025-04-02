@@ -1,4 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+// Replace tiktoken with gpt-tokenizer
+import { encode } from 'gpt-tokenizer';
 
 // --- Configuration ---
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -8,6 +10,22 @@ const generationConfig = {
   topK: 40,
   topP: 0.95,
   maxOutputTokens: 1024,
+};
+
+// Maximum tokens to allow for the entire context (system prompt + history + current message)
+const MAX_CONTEXT_TOKENS = 8000; // Adjust based on your model's limits
+
+// --- Token Counting Utility ---
+const countTokens = (text) => {
+  if (!text || typeof text !== 'string') return 0;
+  try {
+    // Using gpt-tokenizer instead of tiktoken
+    return encode(text).length;
+  } catch (error) {
+    console.warn("Token counting error:", error);
+    // Fallback to rough approximation if tokenizer fails
+    return Math.ceil(text.length / 4);
+  }
 };
 
 // --- System Prompt ---
@@ -35,6 +53,8 @@ const systemPrompt = `You are an intelligent assistant designed to provide helpf
 
 Remember to provide value in every interaction while respecting the user's time and attention.`;
 
+// Pre-calculate system prompt tokens
+const SYSTEM_PROMPT_TOKENS = countTokens(systemPrompt);
 
 // --- Initialization ---
 let genAI;
@@ -60,19 +80,155 @@ if (!API_KEY) {
 }
 
 
-// --- History Mapping Helper ---
-const mapHistoryForApi = (history = []) => {
+// --- History Mapping Helper with Token Management ---
+// --- Enhanced Token Management Strategy ---
+const mapHistoryForApi = (history = [], currentMessage = "") => {
   if (!Array.isArray(history)) {
-      console.warn("Invalid history provided, expected an array. Using empty history.");
-      return [];
+    console.warn("Invalid history provided, expected an array. Using empty history.");
+    return [];
   }
-  return history
-    .filter(msg => msg && typeof msg.sender === 'string' && typeof msg.message === 'string') // Basic validation
-    .map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'model',
-        // Ensure parts always exists, even if message is empty (though filtered above)
-        parts: [{ text: msg.message || '' }]
+  
+  // Calculate tokens for current message
+  const currentMessageTokens = countTokens(currentMessage);
+  
+  // Calculate available tokens for history (reserve tokens for system prompt and current message)
+  // Add a buffer of 200 tokens for safety
+  const availableHistoryTokens = MAX_CONTEXT_TOKENS - SYSTEM_PROMPT_TOKENS - currentMessageTokens - 200;
+  
+  // Validate messages
+  const validMessages = history
+    .filter(msg => msg && typeof msg.sender === 'string' && typeof msg.message === 'string');
+  
+  if (validMessages.length === 0) return [];
+  
+  // STRATEGY: Preserve conversation flow with dynamic truncation
+  // 1. Always keep the most recent messages (last N turns)
+  // 2. For older history, keep important context by sampling
+  
+  // Step 1: Calculate total tokens in history
+  const messageTokenCounts = validMessages.map(msg => ({
+    ...msg,
+    tokens: countTokens(msg.message)
+  }));
+  
+  const totalHistoryTokens = messageTokenCounts.reduce((sum, msg) => sum + msg.tokens, 0);
+  
+  // If we're under the limit, use all messages
+  if (totalHistoryTokens <= availableHistoryTokens) {
+    console.log(`Using complete history (${validMessages.length} messages, ${totalHistoryTokens} tokens)`);
+    return validMessages.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.message || '' }]
     }));
+  }
+  
+  // Step 2: Always keep the most recent conversation turns (e.g., last 3-5 exchanges)
+  const ALWAYS_KEEP_TURNS = 3; // Keep last 3 user-assistant exchanges (6 messages)
+  const recentMessages = [];
+  let recentTokens = 0;
+  
+  // Add most recent messages first (up to ALWAYS_KEEP_TURNS exchanges)
+  let userMsgCount = 0;
+  for (let i = messageTokenCounts.length - 1; i >= 0; i--) {
+    const msg = messageTokenCounts[i];
+    
+    // Count user messages to track conversation turns
+    if (msg.sender === 'user') userMsgCount++;
+    
+    // Stop after we've included ALWAYS_KEEP_TURNS user messages
+    if (userMsgCount > ALWAYS_KEEP_TURNS && recentTokens > 0) break;
+    
+    recentMessages.unshift(msg);
+    recentTokens += msg.tokens;
+  }
+  
+  // Step 3: If recent messages already exceed our budget, keep only the most recent ones
+  if (recentTokens > availableHistoryTokens) {
+    console.log(`Recent messages exceed token limit. Using only ${recentMessages.length} most recent messages.`);
+    // Start removing from the oldest of the "recent" messages until we're under budget
+    let usedTokens = 0;
+    const truncatedRecent = [];
+    
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const msg = recentMessages[i];
+      if (usedTokens + msg.tokens <= availableHistoryTokens) {
+        truncatedRecent.unshift(msg);
+        usedTokens += msg.tokens;
+      } else {
+        break;
+      }
+    }
+    
+    console.log(`Token usage - System: ${SYSTEM_PROMPT_TOKENS}, History: ${usedTokens}, Current message: ${currentMessageTokens}`);
+    return truncatedRecent.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.message || '' }]
+    }));
+  }
+  
+  // Step 4: We have room for some older messages - use strategic sampling
+  const remainingBudget = availableHistoryTokens - recentTokens;
+  const olderMessages = messageTokenCounts.slice(0, messageTokenCounts.length - recentMessages.length);
+  
+  // If we have very little budget left, skip older messages
+  if (remainingBudget < 100 || olderMessages.length === 0) {
+    console.log(`Using only recent messages (${recentMessages.length} messages, ${recentTokens} tokens)`);
+    return recentMessages.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.message || '' }]
+    }));
+  }
+  
+  // Strategic sampling of older messages:
+  // 1. Prioritize user messages (questions often contain important context)
+  // 2. Sample more heavily from middle history than very old history
+  const sampledOlder = [];
+  let sampledTokens = 0;
+  
+  // First pass: include user messages that fit in our budget, prioritizing more recent ones
+  for (let i = olderMessages.length - 1; i >= 0; i--) {
+    const msg = olderMessages[i];
+    // Prioritize user messages
+    if (msg.sender === 'user' && sampledTokens + msg.tokens <= remainingBudget) {
+      sampledOlder.unshift(msg);
+      sampledTokens += msg.tokens;
+      // Remove this message so we don't consider it in the next pass
+      olderMessages.splice(i, 1);
+    }
+  }
+  
+  // Second pass: include corresponding assistant responses if possible
+  // This helps maintain conversation coherence
+  if (sampledTokens < remainingBudget && olderMessages.length > 0) {
+    for (let i = 0; i < sampledOlder.length; i++) {
+      // Find the assistant response that follows this user message
+      if (sampledOlder[i].sender === 'user') {
+        const userIndex = messageTokenCounts.findIndex(m => m === sampledOlder[i]);
+        if (userIndex >= 0 && userIndex < messageTokenCounts.length - 1) {
+          const assistantMsg = messageTokenCounts[userIndex + 1];
+          if (assistantMsg.sender === 'assistant' && 
+              !sampledOlder.includes(assistantMsg) && 
+              sampledTokens + assistantMsg.tokens <= remainingBudget) {
+            // Insert after the user message
+            sampledOlder.splice(i + 1, 0, assistantMsg);
+            sampledTokens += assistantMsg.tokens;
+            i++; // Skip the newly inserted message
+          }
+        }
+      }
+    }
+  }
+  
+  // Combine recent and sampled older messages
+  const finalHistory = [...sampledOlder, ...recentMessages];
+  const finalTokens = sampledTokens + recentTokens;
+  
+  console.log(`Using ${finalHistory.length}/${validMessages.length} messages (${finalTokens} tokens): ${sampledOlder.length} sampled older + ${recentMessages.length} recent`);
+  
+  return finalHistory.map(msg => ({
+    role: msg.sender === 'user' ? 'user' : 'model',
+    parts: [{ text: msg.message || '' }]
+  }));
 };
 
 // --- Generation Function ---
@@ -91,8 +247,9 @@ export const generateResponse = async (message, history = []) => {
        return "Please provide a message to the assistant."; // User-friendly message
   }
 
-  const apiHistory = mapHistoryForApi(history);
-  const systemInstruction = { parts: [{ text: systemPrompt }] }; // Define once for use
+  // Use token-aware history mapping with current message
+  const apiHistory = mapHistoryForApi(history, message);
+  const systemInstruction = { parts: [{ text: systemPrompt }] };
 
   // --- Primary Method: Chat ---
   try {
@@ -100,11 +257,10 @@ export const generateResponse = async (message, history = []) => {
     const chat = model.startChat({
       history: apiHistory,
       generationConfig: generationConfig,
-      systemInstruction: systemInstruction // Correctly pass system prompt here
+      systemInstruction: systemInstruction
     });
 
     const result = await chat.sendMessage(message);
-    // No await needed for result.response
     const response = result.response;
     const text = response.text();
     console.log("Response received via startChat.");
