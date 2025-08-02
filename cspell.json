@@ -1,0 +1,14 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "flowchat",
+    "reactflow",
+    "resizer",
+    "tiktoken"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "package-lock.json"
+  ]
+}

@@ -24,13 +24,15 @@ function ChatNode({ data, id }) {
       elevation={3}
       sx={{
         p: 2,
-        bgcolor: data.isAI ? '#f0f7ff' : '#e6f7f2',
+        bgcolor: data.isAI ? 'background.paper' : 'primary.main',
+        color: data.isAI ? 'text.primary' : 'primary.contrastText',
         borderRadius: 3,
         minWidth: '250px',
         maxWidth: '450px',
         position: 'relative',
         zIndex: 1,
-        transition: 'all 0.2s ease'
+        transition: 'all 0.2s ease',
+        boxShadow: '0 4px 20px 0 rgba(0,0,0,0.1)'
       }}
     >
       <Handle 
@@ -85,8 +87,20 @@ function ChatNode({ data, id }) {
             variant="outlined"
             sx={{
               '& .MuiOutlinedInput-root': {
-                bgcolor: 'background.paper',
-              }
+                bgcolor: 'background.default',
+                '& fieldset': {
+                  borderColor: 'primary.main',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'primary.light',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: 'primary.dark',
+                },
+              },
+              '& .MuiInputBase-input': {
+                color: 'text.primary',
+              },
             }}
           />
         </Box>
